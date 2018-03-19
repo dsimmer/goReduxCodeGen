@@ -6,6 +6,13 @@ import (
 	"path/filepath"
 )
 
+// Description:
+// auto generate dispatches from file - look for actioncreators, then generate text from that - use go?
+
+// auto generate typed props based on a fed in json structure
+
+// auto generate reducers based on actions file suffixed items get different, customizable structure
+
 func run() ([]string, error) {
 	searchDir := "c:/path/to/dir"
 

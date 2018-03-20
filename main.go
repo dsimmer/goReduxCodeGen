@@ -199,6 +199,4 @@ func main() {
 	for _, file := range fileList {
 		fmt.Println(file)
 	}
-
-	return fileList, nil
 }

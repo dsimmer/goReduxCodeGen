@@ -43,7 +43,20 @@ func check(e error) {
 	}
 }
 
+// TODO: relies on types being before actioncreators - good practice anyways
 func parseActions(path, config configuration) error {
+	contents, err := ioutil.ReadFile(path)
+	processed = (string)contents
+	if !strings.Contains(processed, actionCreatorMarker) {
+		return Error.new("No actionCreator found")
+	}
+	processed = strings.SplitAfter(processed, actionCreatorMarker)
+	// identifier is every type line until } 
+	processedTypes = processed[0]
+	// identifier is any line prefixed by 4 spaces (setting and no more)
+	// then get name
+	processedAC = processed[1]
+	strings.
 	return nil
 }
 
@@ -119,6 +132,7 @@ func main() {
 	generateCombinedReducer := true
 
 	config := configuration{
+		actionCreatorMarker:        "actionCreators =",
 		reactMarker:        "import React from ",
 		flowMarker:         "@flow",
 		stateMarker:        "state =",

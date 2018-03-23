@@ -6,6 +6,10 @@ const mapDispatchToProps = (dispatch) => {
     });
 };
 
+const mapDispatchToProps = {
+    ...actionCreators,
+};
+
 
 // An auto reducer wrapper for all actions, defaults to a reducer that simply sets to the payload. Uses naming convention to figure out APIs and adds a loading reducer with a Loading suffix, that is all
 

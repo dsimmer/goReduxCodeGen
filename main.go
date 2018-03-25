@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -40,7 +39,7 @@ import (
 // End generated code
 
 // separate function that generates flow type from json or from a go struct (with json annotations)
-
+// definitely dont change functions if they use an import
 func check(e error) {
 	if e != nil {
 		panic(e)
@@ -56,12 +55,12 @@ var typeDict = map[string]string{
 	"string":    `^.*[\D].*$`,
 }
 var javascriptDict = map[string]string{
-	"prop":   `\s*(undefined)\s*`,
-	"null":   `\s*(null)\s*`,
-	"float":  `^\s*[+-]?[0-9]*[\.][0-9]+$\s*`,
-	"int":    `^\s*[+-]?[0-9]+$\s*`,
-	"array":  `\s*\[\s*`,
-	"string": `^.*[\D].*$`,
+	"afterImport": `\s*(undefined)\s*`,
+	"null":        `\s*(null)\s*`,
+	"float":       `^\s*[+-]?[0-9]*[\.][0-9]+$\s*`,
+	"int":         `^\s*[+-]?[0-9]+$\s*`,
+	"array":       `\s*\[\s*`,
+	"string":      `^.*[\D].*$`,
 }
 
 // todo change all splits to regex - so we can get the closing brackets correctly
@@ -179,8 +178,13 @@ func propTypesGenerator(file string, path string, config configuration) error {
 		//insert
 	} else {
 		// create from scratch
-		snippet, err := parseObjectValues(path, config.propTypesMarker, "}", config.spacer, replaceTypes)
+		regex := regexp.MustCompile(javascriptDict["afterImport"])
+		loc := regex.FindIndex([]byte(file))[0]
+		snippet, err := parseObjectValues(path, config.defaultPropsMarker, "}", config.spacer, replaceTypes)
 		snippet = "type PropTypes: {/n" + snippet + "/n};"
+		check(err)
+		newFile := file[:loc] + snippet + file[loc:]
+		err = ioutil.WriteFile(path, []byte(newFile), 0644)
 		check(err)
 	}
 	return nil
@@ -194,8 +198,13 @@ func stateTypesGenerator(file string, path string, config configuration) error {
 		//insert
 	} else {
 		// create from scratch
-		snippet, err := parseObjectValues(path, config.stateTypesMarker, "}", config.spacer, replaceTypes)
+		regex := regexp.MustCompile(javascriptDict["afterImport"])
+		loc := regex.FindIndex([]byte(file))[0]
+		snippet, err := parseObjectValues(path, config.stateMarker, "}", config.spacer, replaceTypes)
 		snippet = "type StateTypes: {/n" + snippet + "/n};"
+		check(err)
+		newFile := file[:loc] + snippet + file[loc:]
+		err = ioutil.WriteFile(path, []byte(newFile), 0644)
 		check(err)
 	}
 	return nil
@@ -232,6 +241,7 @@ func reducerGenerator(path string, reducerPath string, generateReducerFile bool,
 	} else if isReducerExist {
 		file, err := ioutil.ReadFile(path)
 		check(err)
+		fmt.Println(file)
 	}
 	return nil
 }
@@ -262,18 +272,18 @@ func main() {
 	dir, err := os.Getwd()
 	check(err)
 
-	log.Println(dir)
+	fmt.Println(dir)
 
 	searchDir := dir
 
-	generatePropTypes := true
-	generateStateTypes := true
-	generateMapDispatch := true
-	generateBlankMapState := true
+	generatePropTypes := false
+	generateStateTypes := false
+	generateMapDispatch := false
+	generateBlankMapState := false
 
-	generateReducers := true
-	generateReducerFile := true
-	generateCombinedReducer := true
+	generateReducers := false
+	generateReducerFile := false
+	generateCombinedReducer := false
 
 	config := configuration{
 		actionCreatorMarker: "actionCreators =",
@@ -296,7 +306,7 @@ func main() {
 	fileList := make([]string, 0)
 	e := filepath.Walk(searchDir, func(path string, info os.FileInfo, err error) error {
 		check(err)
-		if info.IsDir() {
+		if info.IsDir() || (!strings.Contains(path, ".js") && !strings.Contains(path, ".jsx")) {
 			return nil
 		}
 		contents, err := ioutil.ReadFile(path)
@@ -351,7 +361,7 @@ func main() {
 
 		// append to files changed which should be returned
 		fileList = append(fileList, path)
-		return err
+		return nil
 	})
 
 	if e != nil {

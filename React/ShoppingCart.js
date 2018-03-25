@@ -1,8 +1,7 @@
 // @flow
-import { connect } from 'react-redux';
 import React from 'react';
 import PropTypes from 'prop-types';
-import {selectPage} from './../../DynamicReact/Actions'
+import {selectPage} from './../../DynamicReact/Actions';
 
 class ShoppingCart extends React.Component<Props> {
     static defaultProps = {
@@ -12,7 +11,17 @@ class ShoppingCart extends React.Component<Props> {
                 "tester"
             ],
             lastName: 'lastName',
-            mobileNumber: '11111111111',
+            mobileNumber: 11111111111,
+        },
+    }
+    state = {
+        suserDetails: {
+            semail: 'dylan',
+            sfirstName: [
+                "tester"
+            ],
+            slastName: 'lastName',
+            smobileNumber: 11111111111,
         },
     }
 	render() {
@@ -23,8 +32,3 @@ class ShoppingCart extends React.Component<Props> {
 		);
 	}
 }
-
-export default connect(
-	mapStateToProps,
-	mapDispatchToProps,
-)(ShoppingCart);

@@ -47,24 +47,25 @@ func check(e error) {
 }
 
 var typeDict = map[string]string{
-	"undefined": `\s*(undefined)\s*`,
-	"null":      `\s*(null)\s*`,
-	"float":     `^\s*[+-]?[0-9]*[\.][0-9]+$\s*`,
-	"int":       `^\s*[+-]?[0-9]+$\s*`,
+	"undefined": `\s*(undefined),?\s*`,
+	"null":      `\s*(null),?\s*`,
+	"float":     `^\s*[+-]?[0-9]*[\.][0-9]+,?\s*$`,
+	"number":    `^\s*[+-]?[0-9]+,?\s*$`,
 	"array":     `\s*\[\s*`,
-	"string":    `^.*[\D].*$`,
+	"arrayEnd":  `\s*\],?\s*`,
+	"object":    `\s*[\{\}],?\s*`,
+	"string":    `["'].*["'],?`,
 }
 var javascriptDict = map[string]string{
-	"afterImport": `\s*(undefined)\s*`,
-	"null":        `\s*(null)\s*`,
-	"float":       `^\s*[+-]?[0-9]*[\.][0-9]+$\s*`,
-	"int":         `^\s*[+-]?[0-9]+$\s*`,
-	"array":       `\s*\[\s*`,
-	"string":      `^.*[\D].*$`,
+	// First empty line after all imports
+	"afterImport": `(?:import.*?)([\r\n])`,
+	"afterFlow":   `(@flow.*?)`,
 }
 
-// todo change all splits to regex - so we can get the closing brackets correctly
+var file string
 
+// todo change all splits to regex - so we can get the closing brackets correctly
+// TODO insert React.Component<Props> and State
 // TODO: relies on types being before actioncreators - good practice anyways
 func parseObject(path string, firstMarker string, lastMarker string, spacer string) ([]string, error) {
 	var lines []string
@@ -78,7 +79,7 @@ func parseObject(path string, firstMarker string, lastMarker string, spacer stri
 	processedSplit := strings.SplitAfter(processed, firstMarker)
 
 	processedFirst := strings.SplitAfter(processedSplit[1], lastMarker)
-	processedLast := strings.SplitAfter(processedFirst[0], "/n")
+	processedLast := strings.SplitAfter(processedFirst[0], "\n")
 
 	for _, line := range processedLast {
 		if strings.Contains(line, lastMarker) {
@@ -93,7 +94,7 @@ func parseObject(path string, firstMarker string, lastMarker string, spacer stri
 
 // maybe just operate on an index?
 
-func parseObjectValues(path string, firstMarker string, lastMarker string, spacer string, replacer func(string) string) (string, error) {
+func parseObjectValues(path string, firstMarker string, lastMarker string, spacer string, replacer func(string, bool) string) (string, error) {
 	contents, err := ioutil.ReadFile(path)
 	check(err)
 	processed := string(contents)
@@ -103,20 +104,26 @@ func parseObjectValues(path string, firstMarker string, lastMarker string, space
 	processedSplit := strings.SplitAfter(processed, firstMarker)
 
 	processedFirst := strings.SplitAfter(processedSplit[1], lastMarker)
-	processedLast := strings.SplitAfter(processedFirst[0], "/n")
+	processedLast := strings.SplitAfter(processedFirst[0], "\n")
 
 	for index, line := range processedLast {
-		if strings.Contains(line, lastMarker) {
+		if line == (spacer + lastMarker) {
+			fmt.Println("Ended on :" + line + "Due to: " + spacer + lastMarker)
 			break
 		} else {
-			value := strings.SplitAfter(strings.SplitAfter(line, spacer)[0], ":")
-			value[1] = replacer(value[1])
-			processedLast[index] = strings.Join(value, "/n")
+			value := strings.SplitAfter(line, ":")
+			if len(value) > 1 {
+				value[1] = replacer(value[1], true)
+				processedLast[index] = strings.Join(value, "")
+			} else {
+				value[0] = replacer(value[0], false)
+				processedLast[index] = strings.Join(value, "")
+			}
 		}
 	}
 
 	// join string up again
-	file := strings.Join(processedLast, "/n")
+	file := strings.Join(processedLast, "")
 
 	return file, nil
 }
@@ -130,13 +137,14 @@ func parseActions(path string, config configuration) ([]string, []string, []stri
 	contents, err := ioutil.ReadFile(path)
 	check(err)
 	processed := string(contents)
+
 	if !strings.Contains(processed, config.actionCreatorMarker) {
 		return types, APITypes, actions, errors.New("No actionCreator found")
 	}
 	processedSplit := strings.SplitAfter(processed, config.actionCreatorMarker)
 	// identifier is every type line until }
 	processedTypes := strings.SplitAfter(processedSplit[0], "types = {")
-	processedTypes = strings.SplitAfter(processedTypes[1], "/n")
+	processedTypes = strings.SplitAfter(processedTypes[1], "\n")
 
 	for _, line := range processedTypes {
 		if strings.Contains(line, "}") {
@@ -145,7 +153,7 @@ func parseActions(path string, config configuration) ([]string, []string, []stri
 			APITypes = append(APITypes, strings.SplitAfter(strings.SplitAfter(line, "'")[1], "_REQUEST")[0])
 		} else if strings.Contains(line, "_REPLY") || strings.Contains(line, "_ERROR") {
 			continue
-		} else {
+		} else if strings.Contains(line, "'") {
 			types = append(types, strings.SplitAfter(line, "'")[1])
 		}
 	}
@@ -153,11 +161,11 @@ func parseActions(path string, config configuration) ([]string, []string, []stri
 	// identifier is any line prefixed by 4 spaces (setting and no more)
 	// then get name
 
-	processedAC := strings.SplitAfter(processedSplit[1], "/n")
+	processedAC := strings.SplitAfter(processedSplit[1], "\n")
 	for _, line := range processedAC {
-		processLine, err := regexp.Match("", []byte(line))
-		check(err)
-		if processLine && !strings.Contains(line, "}") {
+		regex := regexp.MustCompile("$(" + config.spacer + "){1}")
+		processLine := regex.FindIndex([]byte(line))
+		if (processLine != nil) && (line != "};\n") {
 			actions = append(actions, strings.SplitAfter(strings.SplitAfter(line, config.spacer)[1], ":")[0])
 		}
 	}
@@ -165,11 +173,44 @@ func parseActions(path string, config configuration) ([]string, []string, []stri
 	return types, APITypes, actions, nil
 }
 
-func replaceTypes(string) string {
-	return ""
+func replaceTypes(inputString string, split bool) string {
+	input := []byte(inputString)
+
+	regexUndefined := regexp.MustCompile(typeDict["undefined"])
+	regexNull := regexp.MustCompile(typeDict["null"])
+	regexFloat := regexp.MustCompile(typeDict["float"])
+	regexNumber := regexp.MustCompile(typeDict["number"])
+	regexArray := regexp.MustCompile(typeDict["array"])
+	regexArrayEnd := regexp.MustCompile(typeDict["arrayEnd"])
+	regexObject := regexp.MustCompile(typeDict["object"])
+	regexString := regexp.MustCompile(typeDict["string"])
+
+	var regexResult [][]int
+	end := ""
+	if split {
+		end = "\n"
+	}
+	if regexResult = regexUndefined.FindAllIndex(input, -1); regexResult != nil {
+		return " undefined," + end
+	} else if regexResult = regexNull.FindAllIndex(input, -1); regexResult != nil {
+		return " null," + end
+	} else if regexResult = regexFloat.FindAllIndex(input, -1); regexResult != nil {
+		return " float," + end
+	} else if regexResult = regexNumber.FindAllIndex(input, -1); regexResult != nil {
+		return " number," + end
+	} else if regexResult = regexArray.FindAllIndex(input, -1); regexResult != nil {
+		return " Array<"
+	} else if regexResult = regexArrayEnd.FindAllIndex(input, -1); regexResult != nil {
+		return " >,\n"
+	} else if regexResult = regexObject.FindAllIndex(input, -1); regexResult != nil {
+		return inputString
+	} else if regexResult = regexString.FindAllIndex(input, -1); regexResult != nil {
+		return " string," + end
+	}
+	return inputString
 }
 
-func propTypesGenerator(file string, path string, config configuration) error {
+func propTypesGenerator(path string, config configuration) error {
 	isPropTypes := strings.Contains(file, config.propTypesMarker)
 	if isPropTypes {
 		// Not needed?
@@ -179,17 +220,19 @@ func propTypesGenerator(file string, path string, config configuration) error {
 	} else {
 		// create from scratch
 		regex := regexp.MustCompile(javascriptDict["afterImport"])
-		loc := regex.FindIndex([]byte(file))[0]
+		loc := regex.FindAllIndex([]byte(file), -1)
+		index := loc[len(loc)-1][1]
 		snippet, err := parseObjectValues(path, config.defaultPropsMarker, "}", config.spacer, replaceTypes)
-		snippet = "type PropTypes: {/n" + snippet + "/n};"
+		snippet = "\n\ntype PropTypes: {" + snippet + "\n};\n"
 		check(err)
-		newFile := file[:loc] + snippet + file[loc:]
+		newFile := file[:index] + snippet + file[index:]
 		err = ioutil.WriteFile(path, []byte(newFile), 0644)
 		check(err)
+		file = newFile
 	}
 	return nil
 }
-func stateTypesGenerator(file string, path string, config configuration) error {
+func stateTypesGenerator(path string, config configuration) error {
 	isStateTypes := strings.Contains(file, config.stateTypesMarker)
 	if isStateTypes {
 		// not needed?
@@ -199,42 +242,52 @@ func stateTypesGenerator(file string, path string, config configuration) error {
 	} else {
 		// create from scratch
 		regex := regexp.MustCompile(javascriptDict["afterImport"])
-		loc := regex.FindIndex([]byte(file))[0]
+		loc := regex.FindAllIndex([]byte(file), -1)
+		index := loc[len(loc)-1][1]
 		snippet, err := parseObjectValues(path, config.stateMarker, "}", config.spacer, replaceTypes)
-		snippet = "type StateTypes: {/n" + snippet + "/n};"
+		snippet = "\ntype StateTypes: {" + snippet + "\n};\n"
 		check(err)
-		newFile := file[:loc] + snippet + file[loc:]
+		newFile := file[:index] + snippet + file[index:]
 		err = ioutil.WriteFile(path, []byte(newFile), 0644)
 		check(err)
+		file = newFile
 	}
 	return nil
 }
-func mapDispatchGenerator(file string, path string, actionPath string, config configuration) error {
+func mapDispatchGenerator(path string, config configuration) error {
 	isMapDispatch := strings.Contains(file, config.mapDispatchMarker)
 	if !isMapDispatch {
-		regex := regexp.MustCompile("")
-		newFile := regex.ReplaceAll([]byte(file), []byte(`const mapDispatchToProps = {
-			...actionCreators,
-		};
-		`))
-		error := ioutil.WriteFile(path, newFile, 0644)
-		return error
+		newFile := file + "\nconst mapDispatchToProps = {\n...actionCreators,\n};\n"
+		err := ioutil.WriteFile(path, []byte(newFile), 0644)
+		check(err)
+		file = newFile
 	}
 	return nil
 }
-func blankMapStateGenerator(file string, path string, actionPath string, config configuration) error {
+func blankMapStateGenerator(path string, config configuration) error {
 	isMapState := strings.Contains(file, config.mapStateMarker)
 	if !isMapState {
-		regex := regexp.MustCompile("")
-		newFile := regex.ReplaceAll([]byte(file), []byte(`const mapStateToProps = (state) => ({
-		});
-		`))
-		error := ioutil.WriteFile(path, newFile, 0644)
-		return error
+		newFile := file + "\nconst mapStateToProps = (state) => ({\n});\n"
+		err := ioutil.WriteFile(path, []byte(newFile), 0644)
+		check(err)
+		file = newFile
 	}
 	return nil
 }
-func reducerGenerator(path string, reducerPath string, generateReducerFile bool, isReducerExist bool, config configuration, types, APItypes, actions []string) error {
+func connectorGenerator(path string, config configuration) error {
+	isConnector := strings.Contains(file, config.connectorMarker)
+	if !isConnector {
+		regex := regexp.MustCompile(javascriptDict["afterFlow"])
+		loc := regex.FindAllIndex([]byte(file), -1)
+		index := loc[len(loc)-1][1]
+		newFile := file[:index] + "\nimport {connect} from 'react-redux';" + file[index:] + "\nexport default connect(\n" + config.spacer + "mapStateToProps,\n" + config.spacer + "mapDispatchToProps,\n)(ComponentName);\n"
+		err := ioutil.WriteFile(path, []byte(newFile), 0644)
+		check(err)
+		file = newFile
+	}
+	return nil
+}
+func reducerGenerator(path string, generateReducerFile bool, isReducerExist bool, config configuration, types, APItypes, actions []string) error {
 	// Check if any existing reducers in the reducers file and then execute logic
 	if generateReducerFile {
 
@@ -245,12 +298,13 @@ func reducerGenerator(path string, reducerPath string, generateReducerFile bool,
 	}
 	return nil
 }
-func combinedReducerGenerator(path string, reducerPath string, config configuration) error {
+func combinedReducerGenerator(path string, config configuration) error {
 	// Check if combined reducers exists in the reducers file and then execute logic
 	return nil
 }
 
 type configuration struct {
+	connectorMarker     string
 	spacer              string
 	actionCreatorMarker string
 	reactMarker         string
@@ -266,6 +320,7 @@ type configuration struct {
 	actionSuffix        string
 	reducerPrefix       string
 	reducerSuffix       string
+	fileExtension       string
 }
 
 func main() {
@@ -276,30 +331,34 @@ func main() {
 
 	searchDir := dir
 
-	generatePropTypes := false
-	generateStateTypes := false
-	generateMapDispatch := false
-	generateBlankMapState := false
+	generatePropTypes := true
+	generateStateTypes := true
+	generateMapDispatch := true
+	generateBlankMapState := true
+	generateConnector := true
 
 	generateReducers := false
 	generateReducerFile := false
 	generateCombinedReducer := false
 
 	config := configuration{
-		actionCreatorMarker: "actionCreators =",
+		connectorMarker:     "export default connect",
+		spacer:              "    ",
+		actionCreatorMarker: "export const actionCreators = {",
 		reactMarker:         "import React from ",
 		flowMarker:          "@flow",
 		stateMarker:         "state =",
 		stateTypesMarker:    "State:",
 		propTypesMarker:     "Props:",
-		defaultPropsMarker:  "defaultProps:",
-		reduxMarker:         "import {connect} from ",
+		defaultPropsMarker:  "static defaultProps = {",
+		reduxMarker:         "react-redux",
 		mapDispatchMarker:   "mapDispatchToProps",
 		mapStateMarker:      "mapStateToProps",
 		actionPrefix:        "",
 		actionSuffix:        "Actions",
 		reducerPrefix:       "",
-		reducerSuffix:       "Reducer",
+		reducerSuffix:       "Reducers",
+		fileExtension:       ".js",
 	}
 	// import markers etc
 
@@ -314,48 +373,54 @@ func main() {
 		check(err)
 
 		processed := string(contents)
+		file = processed
 
 		isReact := strings.Contains(processed, config.reactMarker)
 		isFlow := strings.Contains(processed, config.flowMarker)
-		isRedux := strings.Contains(processed, config.reduxMarker)
+		// isRedux := strings.Contains(processed, config.reduxMarker)
 
-		ActionFile := filepath.Base(path) + string(os.PathSeparator) + config.actionPrefix + info.Name() + config.actionSuffix
+		ActionFile := filepath.Dir(path) + string(os.PathSeparator) + config.actionPrefix + strings.TrimSuffix(info.Name(), config.fileExtension) + config.actionSuffix + config.fileExtension
 		_, err = os.Stat(ActionFile)
 		isActionExist := err == nil
-		ReducerFile := filepath.Base(path) + string(os.PathSeparator) + config.reducerPrefix + info.Name() + config.reducerSuffix
+		ReducerFile := filepath.Dir(path) + string(os.PathSeparator) + config.reducerPrefix + strings.TrimSuffix(info.Name(), config.fileExtension) + config.reducerSuffix + config.fileExtension
 
 		if isFlow && isReact {
 			isDefaultProps := strings.Contains(processed, config.defaultPropsMarker)
 			isState := strings.Contains(processed, config.stateMarker)
 
-			if generatePropTypes && isDefaultProps {
-				propTypesGenerator(processed, path, config)
-			}
 			if generateStateTypes && isState {
-				stateTypesGenerator(processed, path, config)
+				stateTypesGenerator(path, config)
+			}
+			if generatePropTypes && isDefaultProps {
+				propTypesGenerator(path, config)
 			}
 		}
-		if isReact && isRedux && isActionExist {
+		if isReact && isActionExist {
 			isMapState := strings.Contains(processed, config.mapStateMarker)
+			isConnector := strings.Contains(processed, config.connectorMarker)
+
 			if generateMapDispatch {
-				mapDispatchGenerator(processed, path, ActionFile, config)
+				mapDispatchGenerator(path, config)
 			}
 			if generateBlankMapState && !isMapState {
-				blankMapStateGenerator(processed, path, ActionFile, config)
+				blankMapStateGenerator(path, config)
+			}
+			if generateConnector && !isConnector {
+				connectorGenerator(path, config)
 			}
 		}
 		if isActionExist {
-			types, APItypes, actions, err := parseActions(path, config)
+			types, APItypes, actions, err := parseActions(ActionFile, config)
 			check(err)
 			_, err = os.Stat(ReducerFile)
 			isReducerExist := (err == nil)
 			if generateReducers {
-				reducerGenerator(path, ReducerFile, generateReducerFile, isReducerExist, config, types, APItypes, actions)
+				reducerGenerator(ReducerFile, generateReducerFile, isReducerExist, config, types, APItypes, actions)
 			}
 			_, err = os.Stat(ReducerFile)
 			isReducerExist = (err == nil)
 			if generateCombinedReducer && isReducerExist {
-				combinedReducerGenerator(path, ReducerFile, config)
+				combinedReducerGenerator(ReducerFile, config)
 			}
 		}
 

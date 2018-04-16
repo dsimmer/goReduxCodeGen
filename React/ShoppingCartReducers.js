@@ -3,15 +3,6 @@ import {types} from './ShoppingCartActions';
 
 const cartIS = [];
 
-/*
-cart item:
-
-{
-    id: number
-    count: number,
-}
-*/
-
 export default function ShoppingCartReducer(state = cartIS, action) {
     if (action.type === types.ADD_TO_CART) {
         const present = state.findIndex((item) => item.id === action.payload.id);

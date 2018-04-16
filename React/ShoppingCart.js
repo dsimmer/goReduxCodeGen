@@ -1,7 +1,6 @@
 // @flow
 import React from 'react';
-import PropTypes from 'prop-types';
-import {selectPage} from './../../DynamicReact/Actions';
+import {selectPage} from './ShoppingCartActions';
 
 class ShoppingCart extends React.Component<Props> {
     static defaultProps = {
@@ -11,17 +10,17 @@ class ShoppingCart extends React.Component<Props> {
                 "tester"
             ],
             lastName: 'lastName',
-            mobileNumber: 11111111111,
+            mobileNumber: 0449637688,
         },
     }
     state = {
         suserDetails: {
-            semail: 'dylan',
-            sfirstName: [
+            state_email: 'dylan',
+            state_firstName: [
                 "tester"
             ],
-            slastName: 'lastName',
-            smobileNumber: 11111111111,
+            state_lastName: 'lastName',
+            state_mobileNumber: 0449637688,
         },
     }
 	render() {

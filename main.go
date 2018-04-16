@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -46,6 +47,49 @@ func check(e error) {
 	}
 }
 
+type configuration struct {
+	connectorMarker         string
+	spacer                  string
+	actionCreatorMarker     string
+	reactMarker             string
+	flowMarker              string
+	stateMarker             string
+	stateTypesMarker        string
+	propTypesMarker         string
+	defaultPropsMarker      string
+	reduxMarker             string
+	mapDispatchMarker       string
+	mapStateMarker          string
+	actionPrefix            string
+	actionSuffix            string
+	reducerPrefix           string
+	reducerSuffix           string
+	fileExtension           string
+	generatePropTypes       bool
+	generateStateTypes      bool
+	generateMapDispatch     bool
+	generateBlankMapState   bool
+	generateConnector       bool
+	generateReducers        bool
+	generateReducerFile     bool
+	generateCombinedReducer bool
+}
+
+/*
+FileParser holds the file to parse and the appropriate methods. Require for init are the public properties:
+Config
+Path
+Info
+*/
+type FileParser struct {
+	contents    string
+	reducerFile string
+	actionFile  string
+	Config      configuration
+	Path        string
+	Info        os.FileInfo
+}
+
 var typeDict = map[string]string{
 	"undefined": `\s*(undefined),?\s*`,
 	"null":      `\s*(null),?\s*`,
@@ -62,17 +106,14 @@ var javascriptDict = map[string]string{
 	"afterFlow":   `(@flow.*?)`,
 }
 
-var file string
-
 // todo change all splits to regex - so we can get the closing brackets correctly
 // TODO insert React.Component<Props> and State
 // TODO: relies on types being before actioncreators - good practice anyways
-func parseObject(path string, firstMarker string, lastMarker string, spacer string) ([]string, error) {
+
+func (fp FileParser) parseObject(file string, firstMarker string, lastMarker string, spacer string) ([]string, error) {
 	var lines []string
 
-	contents, err := ioutil.ReadFile(path)
-	check(err)
-	processed := string(contents)
+	processed := file
 	if !strings.Contains(processed, firstMarker) {
 		return lines, errors.New("No firstMarker found")
 	}
@@ -94,10 +135,8 @@ func parseObject(path string, firstMarker string, lastMarker string, spacer stri
 
 // maybe just operate on an index?
 
-func parseObjectValues(path string, firstMarker string, lastMarker string, spacer string, replacer func(string, bool) string) (string, error) {
-	contents, err := ioutil.ReadFile(path)
-	check(err)
-	processed := string(contents)
+func (fp FileParser) parseObjectValues(file string, firstMarker string, lastMarker string, replacer func(string, bool) string) (string, error) {
+	processed := file
 	if !strings.Contains(processed, firstMarker) {
 		return "", errors.New("No firstMarker found")
 	}
@@ -107,8 +146,8 @@ func parseObjectValues(path string, firstMarker string, lastMarker string, space
 	processedLast := strings.SplitAfter(processedFirst[0], "\n")
 
 	for index, line := range processedLast {
-		if line == (spacer + lastMarker) {
-			fmt.Println("Ended on :" + line + "Due to: " + spacer + lastMarker)
+		if line == (fp.Config.spacer + lastMarker) {
+			fmt.Println("Ended on :" + line + "Due to: " + fp.Config.spacer + lastMarker)
 			break
 		} else {
 			value := strings.SplitAfter(line, ":")
@@ -123,25 +162,23 @@ func parseObjectValues(path string, firstMarker string, lastMarker string, space
 	}
 
 	// join string up again
-	file := strings.Join(processedLast, "")
+	newFile := strings.Join(processedLast, "")
 
-	return file, nil
+	return newFile, nil
 }
 
 // TODO: relies on types being before actioncreators - good practice anyways
-func parseActions(path string, config configuration) ([]string, []string, []string, error) {
+func (fp FileParser) parseActions() ([]string, []string, []string, error) {
 	var actions []string
 	var types []string
 	var APITypes []string
 
-	contents, err := ioutil.ReadFile(path)
-	check(err)
-	processed := string(contents)
+	processed := string(fp.actionFile)
 
-	if !strings.Contains(processed, config.actionCreatorMarker) {
+	if !strings.Contains(processed, fp.Config.actionCreatorMarker) {
 		return types, APITypes, actions, errors.New("No actionCreator found")
 	}
-	processedSplit := strings.SplitAfter(processed, config.actionCreatorMarker)
+	processedSplit := strings.SplitAfter(processed, fp.Config.actionCreatorMarker)
 	// identifier is every type line until }
 	processedTypes := strings.SplitAfter(processedSplit[0], "types = {")
 	processedTypes = strings.SplitAfter(processedTypes[1], "\n")
@@ -163,10 +200,10 @@ func parseActions(path string, config configuration) ([]string, []string, []stri
 
 	processedAC := strings.SplitAfter(processedSplit[1], "\n")
 	for _, line := range processedAC {
-		regex := regexp.MustCompile("$(" + config.spacer + "){1}")
+		regex := regexp.MustCompile("$(" + fp.Config.spacer + "){1}")
 		processLine := regex.FindIndex([]byte(line))
 		if (processLine != nil) && (line != "};\n") {
-			actions = append(actions, strings.SplitAfter(strings.SplitAfter(line, config.spacer)[1], ":")[0])
+			actions = append(actions, strings.SplitAfter(strings.SplitAfter(line, fp.Config.spacer)[1], ":")[0])
 		}
 	}
 
@@ -210,230 +247,183 @@ func replaceTypes(inputString string, split bool) string {
 	return inputString
 }
 
-func propTypesGenerator(path string, config configuration) error {
-	isPropTypes := strings.Contains(file, config.propTypesMarker)
+func (fp FileParser) propTypesGenerator() error {
+	isPropTypes := strings.Contains(fp.contents, fp.Config.propTypesMarker)
 	if isPropTypes {
 		// Not needed?
-		// existingProps, err := parseObject(path, config.propTypesMarker, "}", config.spacer)
+		// existingProps, err := parseObject(path, Config.propTypesMarker, "}", Config.spacer)
 		// check(err)
 		//insert
 	} else {
 		// create from scratch
 		regex := regexp.MustCompile(javascriptDict["afterImport"])
-		loc := regex.FindAllIndex([]byte(file), -1)
+		loc := regex.FindAllIndex([]byte(fp.contents), -1)
 		index := loc[len(loc)-1][1]
-		snippet, err := parseObjectValues(path, config.defaultPropsMarker, "}", config.spacer, replaceTypes)
+		snippet, err := fp.parseObjectValues(fp.contents, fp.Config.defaultPropsMarker, "}", replaceTypes)
 		snippet = "\n\ntype PropTypes: {" + snippet + "\n};\n"
 		check(err)
-		newFile := file[:index] + snippet + file[index:]
-		err = ioutil.WriteFile(path, []byte(newFile), 0644)
-		check(err)
-		file = newFile
+		fp.contents = fp.contents[:index] + snippet + fp.contents[index:]
 	}
 	return nil
 }
-func stateTypesGenerator(path string, config configuration) error {
-	isStateTypes := strings.Contains(file, config.stateTypesMarker)
+func (fp FileParser) stateTypesGenerator() error {
+	isStateTypes := strings.Contains(fp.contents, fp.Config.stateTypesMarker)
 	if isStateTypes {
 		// not needed?
-		// existingStates, err := parseObject(path, config.stateTypesMarker, "}", config.spacer)
+		// existingStates, err := parseObject(path, Config.stateTypesMarker, "}", Config.spacer)
 		// check(err)
 		//insert
 	} else {
 		// create from scratch
 		regex := regexp.MustCompile(javascriptDict["afterImport"])
-		loc := regex.FindAllIndex([]byte(file), -1)
+		loc := regex.FindAllIndex([]byte(fp.contents), -1)
 		index := loc[len(loc)-1][1]
-		snippet, err := parseObjectValues(path, config.stateMarker, "}", config.spacer, replaceTypes)
+		snippet, err := fp.parseObjectValues(fp.contents, fp.Config.stateMarker, "}", replaceTypes)
 		snippet = "\ntype StateTypes: {" + snippet + "\n};\n"
 		check(err)
-		newFile := file[:index] + snippet + file[index:]
-		err = ioutil.WriteFile(path, []byte(newFile), 0644)
-		check(err)
-		file = newFile
+		fp.contents = fp.contents[:index] + snippet + fp.contents[index:]
 	}
 	return nil
 }
-func mapDispatchGenerator(path string, config configuration) error {
-	isMapDispatch := strings.Contains(file, config.mapDispatchMarker)
+func (fp FileParser) mapDispatchGenerator() error {
+	isMapDispatch := strings.Contains(fp.contents, fp.Config.mapDispatchMarker)
 	if !isMapDispatch {
-		newFile := file + "\nconst mapDispatchToProps = {\n...actionCreators,\n};\n"
-		err := ioutil.WriteFile(path, []byte(newFile), 0644)
-		check(err)
-		file = newFile
+		fp.contents = fp.contents + "\nconst mapDispatchToProps = {\n...actionCreators,\n};\n"
 	}
 	return nil
 }
-func blankMapStateGenerator(path string, config configuration) error {
-	isMapState := strings.Contains(file, config.mapStateMarker)
+func (fp FileParser) blankMapStateGenerator() error {
+	isMapState := strings.Contains(fp.contents, fp.Config.mapStateMarker)
 	if !isMapState {
-		newFile := file + "\nconst mapStateToProps = (state) => ({\n});\n"
-		err := ioutil.WriteFile(path, []byte(newFile), 0644)
-		check(err)
-		file = newFile
+		fp.contents = fp.contents + "\nconst mapStateToProps = (state) => ({\n});\n"
 	}
 	return nil
 }
-func connectorGenerator(path string, config configuration) error {
-	isConnector := strings.Contains(file, config.connectorMarker)
+func (fp FileParser) connectorGenerator() error {
+	isConnector := strings.Contains(fp.contents, fp.Config.connectorMarker)
 	if !isConnector {
 		regex := regexp.MustCompile(javascriptDict["afterFlow"])
-		loc := regex.FindAllIndex([]byte(file), -1)
+		loc := regex.FindAllIndex([]byte(fp.contents), -1)
 		index := loc[len(loc)-1][1]
-		newFile := file[:index] + "\nimport {connect} from 'react-redux';" + file[index:] + "\nexport default connect(\n" + config.spacer + "mapStateToProps,\n" + config.spacer + "mapDispatchToProps,\n)(ComponentName);\n"
-		err := ioutil.WriteFile(path, []byte(newFile), 0644)
-		check(err)
-		file = newFile
+		fp.contents = fp.contents[:index] + "\nimport {connect} from 'react-redux';" + fp.contents[index:] + "\nexport default connect(\n" + fp.Config.spacer + "mapStateToProps,\n" + fp.Config.spacer + "mapDispatchToProps,\n)(ComponentName);\n"
 	}
 	return nil
 }
-func reducerGenerator(path string, generateReducerFile bool, isReducerExist bool, config configuration, types, APItypes, actions []string) error {
+func (fp FileParser) reducerGenerator(isReducerExist bool, types, APItypes, actions []string) error {
 	// Check if any existing reducers in the reducers file and then execute logic
-	if generateReducerFile {
+	if fp.Config.generateReducerFile {
 
 	} else if isReducerExist {
-		file, err := ioutil.ReadFile(path)
-		check(err)
-		fmt.Println(file)
+		fmt.Println("check")
 	}
 	return nil
 }
-func combinedReducerGenerator(path string, config configuration) error {
+func (fp FileParser) combinedReducerGenerator() error {
 	// Check if combined reducers exists in the reducers file and then execute logic
 	return nil
 }
 
-type configuration struct {
-	connectorMarker     string
-	spacer              string
-	actionCreatorMarker string
-	reactMarker         string
-	flowMarker          string
-	stateMarker         string
-	stateTypesMarker    string
-	propTypesMarker     string
-	defaultPropsMarker  string
-	reduxMarker         string
-	mapDispatchMarker   string
-	mapStateMarker      string
-	actionPrefix        string
-	actionSuffix        string
-	reducerPrefix       string
-	reducerSuffix       string
-	fileExtension       string
+// ProcessFile uses the info from the FileParser struct to parse and generate the relevant js.
+func (fp FileParser) ProcessFile() error {
+	if fp.Info.IsDir() || (!strings.Contains(fp.Path, ".js") && !strings.Contains(fp.Path, ".jsx")) {
+		return nil
+	}
+	contents, err := ioutil.ReadFile(fp.Path)
+	fp.contents = string(contents)
+	check(err)
+
+	isReact := strings.Contains(fp.contents, fp.Config.reactMarker)
+	isFlow := strings.Contains(fp.contents, fp.Config.flowMarker)
+	// isRedux := strings.Contains(fp.contents, fp.Config.reduxMarker)
+
+	ActionPath := filepath.Dir(fp.Path) + string(os.PathSeparator) + fp.Config.actionPrefix + strings.TrimSuffix(fp.info.Name(), fp.Config.fileExtension) + fp.Config.actionSuffix + fp.Config.fileExtension
+	_, err = os.Stat(ActionPath)
+	isActionExist := err == nil
+	if isActionExist {
+		actionfile, err := ioutil.ReadFile(ActionPath)
+		check(err)
+		fp.actionFile = string(actionfile)
+	}
+
+	if isFlow && isReact {
+		isDefaultProps := strings.Contains(fp.contents, fp.Config.defaultPropsMarker)
+		isState := strings.Contains(fp.contents, fp.Config.stateMarker)
+
+		if fp.Config.generateStateTypes && isState {
+			fp.stateTypesGenerator()
+		}
+		if fp.Config.generatePropTypes && isDefaultProps {
+			fp.propTypesGenerator()
+		}
+	}
+	if isReact && isActionExist {
+		isMapState := strings.Contains(fp.contents, fp.Config.mapStateMarker)
+		isConnector := strings.Contains(fp.contents, fp.Config.connectorMarker)
+
+		if fp.Config.generateMapDispatch {
+			fp.mapDispatchGenerator()
+		}
+		if fp.Config.generateBlankMapState && !isMapState {
+			fp.blankMapStateGenerator()
+		}
+		if fp.Config.generateConnector && !isConnector {
+			fp.connectorGenerator()
+		}
+	}
+	ReducerPath := filepath.Dir(fp.Path) + string(os.PathSeparator) + fp.Config.reducerPrefix + strings.TrimSuffix(fp.Info.Name(), fp.Config.fileExtension) + fp.Config.reducerSuffix + fp.Config.fileExtension
+	_, err = os.Stat(ReducerPath)
+	isReducerExist := (err == nil)
+	if isActionExist {
+		types, APItypes, actions, err := fp.parseActions()
+		check(err)
+		if isReducerExist {
+			reducerfile, err := ioutil.ReadFile(ReducerPath)
+			check(err)
+			fp.reducerFile = string(reducerfile)
+		}
+		if fp.Config.generateReducers {
+			fp.reducerGenerator(isReducerExist, types, APItypes, actions)
+		}
+		_, err = os.Stat(ReducerPath)
+		isReducerExist = (err == nil)
+		if fp.Config.generateCombinedReducer && isReducerExist {
+			fp.combinedReducerGenerator()
+		}
+	}
+	if isReducerExist {
+		err := ioutil.WriteFile(ReducerPath, []byte(fp.actionFile), 0644)
+		check(err)
+	}
+	if isActionExist {
+		err = ioutil.WriteFile(ActionPath, []byte(fp.reducerFile), 0644)
+		check(err)
+	}
+	err = ioutil.WriteFile(fp.Path, []byte(fp.contents), 0644)
+	check(err)
+
+	return nil
 }
 
 func main() {
-	dir, err := os.Getwd()
+	searchDir, err := os.Getwd()
 	check(err)
 
-	fmt.Println(dir)
+	configFile, err := ioutil.ReadFile("config.json")
 
-	searchDir := dir
-
-	generatePropTypes := true
-	generateStateTypes := true
-	generateMapDispatch := true
-	generateBlankMapState := true
-	generateConnector := true
-
-	generateReducers := false
-	generateReducerFile := false
-	generateCombinedReducer := false
-
-	config := configuration{
-		connectorMarker:     "export default connect",
-		spacer:              "    ",
-		actionCreatorMarker: "export const actionCreators = {",
-		reactMarker:         "import React from ",
-		flowMarker:          "@flow",
-		stateMarker:         "state =",
-		stateTypesMarker:    "State:",
-		propTypesMarker:     "Props:",
-		defaultPropsMarker:  "static defaultProps = {",
-		reduxMarker:         "react-redux",
-		mapDispatchMarker:   "mapDispatchToProps",
-		mapStateMarker:      "mapStateToProps",
-		actionPrefix:        "",
-		actionSuffix:        "Actions",
-		reducerPrefix:       "",
-		reducerSuffix:       "Reducers",
-		fileExtension:       ".js",
-	}
+	config := configuration{}
+	err = json.Unmarshal(configFile, &config)
+	check(err)
 	// import markers etc
-
-	fileList := make([]string, 0)
-	e := filepath.Walk(searchDir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(searchDir, func(path string, info os.FileInfo, err error) error {
 		check(err)
-		if info.IsDir() || (!strings.Contains(path, ".js") && !strings.Contains(path, ".jsx")) {
-			return nil
+		newFileParser := FileParser{
+			Path:   path,
+			Info:   info,
+			Config: config,
 		}
-		contents, err := ioutil.ReadFile(path)
-
-		check(err)
-
-		processed := string(contents)
-		file = processed
-
-		isReact := strings.Contains(processed, config.reactMarker)
-		isFlow := strings.Contains(processed, config.flowMarker)
-		// isRedux := strings.Contains(processed, config.reduxMarker)
-
-		ActionFile := filepath.Dir(path) + string(os.PathSeparator) + config.actionPrefix + strings.TrimSuffix(info.Name(), config.fileExtension) + config.actionSuffix + config.fileExtension
-		_, err = os.Stat(ActionFile)
-		isActionExist := err == nil
-		ReducerFile := filepath.Dir(path) + string(os.PathSeparator) + config.reducerPrefix + strings.TrimSuffix(info.Name(), config.fileExtension) + config.reducerSuffix + config.fileExtension
-
-		if isFlow && isReact {
-			isDefaultProps := strings.Contains(processed, config.defaultPropsMarker)
-			isState := strings.Contains(processed, config.stateMarker)
-
-			if generateStateTypes && isState {
-				stateTypesGenerator(path, config)
-			}
-			if generatePropTypes && isDefaultProps {
-				propTypesGenerator(path, config)
-			}
-		}
-		if isReact && isActionExist {
-			isMapState := strings.Contains(processed, config.mapStateMarker)
-			isConnector := strings.Contains(processed, config.connectorMarker)
-
-			if generateMapDispatch {
-				mapDispatchGenerator(path, config)
-			}
-			if generateBlankMapState && !isMapState {
-				blankMapStateGenerator(path, config)
-			}
-			if generateConnector && !isConnector {
-				connectorGenerator(path, config)
-			}
-		}
-		if isActionExist {
-			types, APItypes, actions, err := parseActions(ActionFile, config)
-			check(err)
-			_, err = os.Stat(ReducerFile)
-			isReducerExist := (err == nil)
-			if generateReducers {
-				reducerGenerator(ReducerFile, generateReducerFile, isReducerExist, config, types, APItypes, actions)
-			}
-			_, err = os.Stat(ReducerFile)
-			isReducerExist = (err == nil)
-			if generateCombinedReducer && isReducerExist {
-				combinedReducerGenerator(ReducerFile, config)
-			}
-		}
-
-		// append to files changed which should be returned
-		fileList = append(fileList, path)
-		return nil
+		return newFileParser.ProcessFile()
 	})
 
-	if e != nil {
-		panic(e)
-	}
-
-	for _, file := range fileList {
-		fmt.Println(file)
-	}
+	check(err)
+	fmt.Println("Done!")
 }

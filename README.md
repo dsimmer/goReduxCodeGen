@@ -6,7 +6,13 @@ To use this in its default state, your react components will have to be setup li
 
 The tool will automagically fill out all that boilerplate in your corresponding files.
 
-Your components will have to be using an isolated project structure like this one as currently I cannot map the files together if they are all in different directories. 
+Your components will have to be using an isolated project structure like the example provided as currently I cannot map the files together if they are all in different directories.
+
+The files are walked, component files are found and the corresponding action file is identified. Then the action file, reducer file and component file are read into the fileparser struct and processed by its functions depending on the confiuration below.
+
+The modified contents of each file are the rewritten over the original files.
+
+I recommend using git or a similar tool for identifying and verifying the changes this tool makes as there is no other way of identifying original and generated code. This is my personal helper and I don't need code generation tags all over my repos.
 
 The configuration object is loaded from your config.json. It contains:
 

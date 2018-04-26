@@ -1,0 +1,14 @@
+
+// separate template files for each type of replacements, loaded on start
+// document - update config options in readme
+
+// for generating flow props - add in basic if not found. Also check for state and add in if not found.
+// If default props present and line item not present in props, add to props.
+// If action not present in proptypes, add to props.
+// if mapstatetoprops not present in proptypes, add to props.
+
+// For generating reducers, look through for same action names plus the suffix Reducer. Add any not found
+// Then look through the combined reducer for the reducers. Add any not found
+
+// To mark an action as custom (and not able to be generated), prefix it with //@NoGen
+// To mark a file as custom (and not able to be generated), put //@NoGenFile in the file somewhere

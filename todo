@@ -2,6 +2,8 @@
 // separate template files for each type of replacements, loaded on start
 // document - update config options in readme
 
+// instead of hardcoding linebreaks and spacing, use the spacer and maybe a custom linebreak
+
 // for generating flow props - add in basic if not found. Also check for state and add in if not found.
 // If default props present and line item not present in props, add to props.
 // If action not present in proptypes, add to props.

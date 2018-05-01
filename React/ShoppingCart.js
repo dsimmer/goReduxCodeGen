@@ -31,3 +31,15 @@ class ShoppingCart extends React.Component<Props> {
 		);
 	}
 }
+
+const mapDispatchToProps = {
+...actionCreators,
+};
+
+const mapStateToProps = (state) => ({
+});
+
+export default connect(
+    mapStateToProps,
+    mapDispatchToProps,
+)(ComponentName);

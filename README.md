@@ -1,5 +1,7 @@
 #Go Redux CodeGen
 
+run the project in this directory to see what it does
+
 This small project will walk the working directory file tree and parse the js files it finds there.
 
 To use this in its default state, your react components will have to be setup like the example included. No mapping of state or dispatch, no actions and no reducers. Just fill out your types (the component itself isnt necessary, but if you include it and the state and defaultprops we will generate flow types for them) then run the tool.
